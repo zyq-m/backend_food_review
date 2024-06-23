@@ -18,6 +18,16 @@ def predict_sentiment():
     return many_review.dump(reviews)
 
 
+@bp.get("/restaurant")
+def get_all_restaurants():
+    restaurant = Restaurant.query.all()
+
+    if not restaurant:
+        return jsonify(message="Could not find any restaurant")
+
+    return jsonify(restaurant=many_restaurant.dump(restaurant))
+
+
 @bp.get("/restaurant/search")
 def get_restaurant_by_query():
     query = request.args
@@ -117,30 +127,36 @@ def get_restaurant_by_id(id):
 @jwt_required()
 def add_restaurant():
     data = json.loads(request.data)
+    services = " · ".join(data["services"])
+    photos = {
+        "profile": {
+            "profile_img": data["profile_img"],
+            "profile_link": data["profile_link"],
+        },
+        "bg": {
+            "bg_img": data["bg_img"],
+            "bg_link": data["bg_link"],
+        },
+    }
+    links = {
+        "email": data["email"],
+        "fb": data["fb"],
+        "ig": data["ig"],
+    }
+
     restaurant = Restaurant(
         name=data["name"],
         description=data["description"],
         category=data["category"],
         phone=data["phone"],
         location=data["location"],
-        social_links=data["social_links"],
+        social_links=links,
         website=data["website"],
-        service=data["service"],
+        services=services,
+        photos=photos,
     )
 
     db.session.add(restaurant)
-
-    if data["reviews"]:
-        for item in data["reviews"]:
-            review = Review(
-                review=item.review,
-                reviewer=item.reviewer,
-                date=item.date,
-                restaurant=restaurant,
-            )
-
-            db.session.add(review)
-
     db.session.commit()
 
     return jsonify(message="Restaurant registered successfully"), 201
