@@ -18,28 +18,75 @@ def predict_sentiment():
     return many_review.dump(reviews)
 
 
+def get_reviews_count(restaurant_id):
+    no_review = (
+        db.session.query(func.count(Review.id).label("reviews"))
+        .filter_by(restaurant_id=restaurant_id)
+        .first()
+    )
+    positive_review = (
+        db.session.query(func.count(Review.id).label("reviews"))
+        .filter_by(restaurant_id=restaurant_id, sentiment=True)
+        .first()
+    )
+
+    return {
+        "no_review": no_review.reviews,
+        "positive_review": positive_review.reviews,
+    }
+
+
+def get_restaurants_summary(query):
+    restaurants = []
+
+    for item in query:
+        review_summary = get_reviews_count(item.id)
+
+        restaurants.append(
+            {
+                "id": item.id,
+                "name": item.name,
+                "photos": item.photos,
+                "category": item.category,
+                "services": item.services,
+                "no_review": review_summary["no_review"],
+                "positive_review": review_summary["positive_review"],
+            }
+        )
+
+    return restaurants
+
+
 @bp.get("/restaurant")
 def get_all_restaurants():
     restaurant = Restaurant.query.all()
+    restaurants = get_restaurants_summary(query=restaurant)
 
     if not restaurant:
         return jsonify(message="Could not find any restaurant")
 
-    return jsonify(restaurant=many_restaurant.dump(restaurant))
+    return jsonify(restaurant=restaurants)
 
 
 @bp.get("/restaurant/search")
 def get_restaurant_by_query():
     query = request.args
     category = query.get("category")
-    name = query.get("name")
     sentiment = query.get("sentiment")
+    name = query.get("name")
     location = query.get("location")
     other = query.get("other")
 
     restaurant = (
         db.session.query(Restaurant).join(Restaurant.reviews).group_by(Restaurant.id)
     )
+
+    if sentiment is not None and sentiment:
+        lr_model = LR_Model()
+        predict_res = lr_model.predict(sentiment)
+        print(predict_res)
+
+        restaurant = restaurant.filter_by(sentiment=predict_res)
 
     if category is not None and category:
         restaurant = restaurant.filter_by(Restaurant.category.contains(category))
@@ -53,18 +100,13 @@ def get_restaurant_by_query():
     if other is not None and other == "most_review":
         restaurant = restaurant.order_by(func.count(Review.id).desc())
 
-    if sentiment is not None and sentiment:
-        lr_model = LR_Model()
-        predict_res = lr_model.predict(sentiment)
-
-        print(predict_res)
-
     restaurant = restaurant.all()
+    restaurants = get_restaurants_summary(query=restaurant)
 
     if not restaurant:
         return jsonify(message="Could not find any restaurant")
 
-    return jsonify(restaurant=many_restaurant.dump(restaurant))
+    return jsonify(restaurant=restaurants)
 
 
 @bp.get("/restaurant/statistics")
@@ -102,6 +144,7 @@ def get_restaurant_():
 def get_restaurant_by_id(id):
     restaurant = Restaurant.query.filter_by(id=id).first()
     restaurant_details = one_restaurant.dump(restaurant)
+    review_summary = get_reviews_count(id)
 
     reviews = []
     for review in restaurant.reviews:
@@ -116,6 +159,8 @@ def get_restaurant_by_id(id):
         )
 
     restaurant_details["reviews"] = reviews
+    restaurant_details["no_review"] = review_summary["no_review"]
+    restaurant_details["positive_review"] = review_summary["positive_review"]
 
     if not restaurant:
         return jsonify(message="Could not find any restaurant"), 404
@@ -130,12 +175,10 @@ def add_restaurant():
     services = " · ".join(data["services"])
     photos = {
         "profile": {
-            "profile_img": data["profile_img"],
-            "profile_link": data["profile_link"],
+            "link": data["profile_link"],
         },
         "bg": {
-            "bg_img": data["bg_img"],
-            "bg_link": data["bg_link"],
+            "link": data["bg_link"],
         },
     }
     links = {
@@ -167,6 +210,20 @@ def add_restaurant():
 def update_restaurant(id):
     data = json.loads(request.data)
     restaurant = Restaurant.query.filter_by(id=id).first()
+    services = " · ".join(data["services"])
+    photos = {
+        "profile": {
+            "link": data["profile_link"],
+        },
+        "bg": {
+            "link": data["bg_link"],
+        },
+    }
+    links = {
+        "email": data["email"],
+        "fb": data["fb"],
+        "ig": data["ig"],
+    }
 
     if not restaurant:
         return jsonify(message="Could not find any restaurant"), 404
@@ -176,9 +233,10 @@ def update_restaurant(id):
     restaurant.category = data["category"]
     restaurant.phone = data["phone"]
     restaurant.location = data["location"]
-    restaurant.social_links = data["social_links"]
+    restaurant.social_links = links
     restaurant.website = data["website"]
-    restaurant.service = data["service"]
+    restaurant.services = services
+    restaurant.photos = photos
 
     db.session.commit()
 

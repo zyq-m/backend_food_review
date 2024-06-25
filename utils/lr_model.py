@@ -40,7 +40,4 @@ class LR_Model:
         tf_x_input = vectorizer.transform([self.preprocess_text(text)])
         y_predict = self.model.predict(tf_x_input)
 
-        if y_predict[0] == 1:
-            return "positive"
-
-        return "negative"
+        return y_predict[0]

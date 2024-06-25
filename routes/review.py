@@ -1,6 +1,10 @@
-from flask import Blueprint, jsonify, request
+from datetime import date
+from email import message
+from flask import Blueprint, json, jsonify, request
+from flask_jwt_extended import get_jwt_identity, jwt_required
+from sqlalchemy import exc
 
-from model.model import Review
+from model.model import Review, db
 from model.schema import ReviewSchema
 
 
@@ -23,34 +27,47 @@ def get_reviews(id):
     sentiment = query.get("sentiment")
     date = query.get("date")
 
-    if not query:
-        reviews = Review.query.filter_by(restaurant_id=id).all()
+    reviews = Review.query.filter_by(restaurant_id=id)
 
-        return filter_review_response(reviews)
+    if sentiment is not None and sentiment:
+        reviews = reviews.filter_by(sentiment=sentiment)
 
-    if sentiment and date is not None:
-        reviews = (
-            Review.query.filter_by(restaurant_id=id, sentiment=sentiment)
-            .order_by(
-                Review.date.desc() if date == "desc" else Review.date.asc(),
-            )
-            .all()
+    if date is not None and date:
+        reviews = reviews.filter_by(restaurant_id=id, sentiment=sentiment).order_by(
+            Review.date.desc() if date == "desc" else Review.date.asc(),
         )
 
-        return filter_review_response(reviews)
+    reviews = reviews.all()
+    reviews_detail = many_review.dump(reviews)
 
-    if date is not None:
-        reviews = (
-            Review.query.filter_by(restaurant_id=id)
-            .order_by(
-                Review.date.desc() if date == "desc" else Review.date.asc(),
-            )
-            .all()
-        )
+    return jsonify(reviews=reviews_detail)
 
-        return filter_review_response(reviews)
 
-    if sentiment is not None:
-        reviews = Review.query.filter_by(restaurant_id=id, sentiment=sentiment).all()
+@bp.post("/review")
+@jwt_required()
+def add_review():
+    data = json.loads(request.data)
+    user = get_jwt_identity()
 
-        return filter_review_response(reviews)
+    if user["role"]["role"] == "admin":
+        return jsonify(message="You are not allowed"), 400
+
+    check_review = Review.query.filter_by(
+        restaurant_id=data["restaurant_id"], reviewer=user["email"]
+    ).first()
+
+    if check_review:
+        return jsonify(message="You only can review once per restaurant"), 400
+
+    review = Review(
+        restaurant_id=data["restaurant_id"],
+        review=data["review"],
+        reviewer=user["email"],
+        sentiment=data["sentiment"],
+        date=date.today(),
+    )
+
+    db.session.add(review)
+    db.session.commit()
+
+    return jsonify(message="Review posted successfully"), 201

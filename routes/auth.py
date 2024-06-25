@@ -1,4 +1,3 @@
-from email import message
 from flask import Blueprint, json, jsonify, request
 from flask_jwt_extended import (
     create_access_token,

@@ -23,3 +23,5 @@ class RestaurantSchema(ma.SQLAlchemyAutoSchema):
 class ReviewSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
         model = Review
+
+    reviewer = ma.auto_field()
